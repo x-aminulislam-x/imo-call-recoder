@@ -1,0 +1,24 @@
+# Android / Gradle build output
+*.iml
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local SDK path - machine specific, never commit
+local.properties
+
+# IDE
+.idea/
+*.hprof
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Signing material - keep private keys out of git
+*.jks
+*.keystore
+keystore.properties
