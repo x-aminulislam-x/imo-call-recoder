@@ -1,7 +1,7 @@
 name: Build APK
 
 # Builds a debug APK in the cloud so you do not need a local Android toolchain.
-# Push this repo to GitHub, then grab the APK from the run's Artifacts section.
+# Push, then grab the APK from the run's Artifacts section.
 
 on:
   push:
@@ -12,16 +12,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 actions: v4 targets Node 20, which runners now force onto Node 24
+      # and which can crash actions that are not ready for it.
+      - uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # No setup-android step on purpose. The ubuntu-latest image already ships
+      # the Android SDK with ANDROID_HOME set, so pulling in a third-party SDK
+      # action only adds a step that can break.
+      - name: Accept Android SDK licences
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" || true
 
       # Invoking gradle directly rather than ./gradlew, because this project
       # ships without a wrapper JAR (a binary we cannot generate by hand).
@@ -30,8 +38,13 @@ jobs:
         with:
           gradle-version: "8.7"
 
+      - name: Show toolchain versions
+        run: |
+          java -version
+          gradle --version
+
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
