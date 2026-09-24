@@ -20,6 +20,7 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.example.imorec.deleteSilent
 import com.example.imorec.forceSpeaker
 import com.example.imorec.imoOnly
 import com.example.imorec.monitorEnabled
@@ -36,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var list: ListView
     private lateinit var startBtn: Button
     private lateinit var stopBtn: Button
+    private lateinit var recordBtn: Button
     private var files: List<File> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,6 +96,19 @@ class MainActivity : Activity() {
         spkBox.isChecked = forceSpeaker
         spkBox.setOnCheckedChangeListener { _, v -> forceSpeaker = v }
 
+        val silentBox = findViewById<CheckBox>(R.id.deleteSilent)
+        silentBox.isChecked = deleteSilent
+        silentBox.setOnCheckedChangeListener { _, v -> deleteSilent = v }
+
+        recordBtn = findViewById(R.id.record)
+        recordBtn.setOnClickListener {
+            if (!hasMicPermission()) {
+                requestPerms()
+                return@setOnClickListener
+            }
+            RecorderService.toggleManual(this)
+        }
+
         findViewById<Button>(R.id.refresh).setOnClickListener { loadFiles() }
 
         list.setOnItemClickListener { _, _, pos, _ -> shareFile(files[pos]) }
@@ -119,6 +134,11 @@ class MainActivity : Activity() {
             status.text = RecorderService.lastStatus
             startBtn.isEnabled = !RecorderService.isMonitoring
             stopBtn.isEnabled = RecorderService.isMonitoring
+            recordBtn.text = if (RecorderService.isManualRecording) {
+                "Stop recording"
+            } else {
+                "Record now (for a second phone)"
+            }
             checks.text = readiness()
             handler.postDelayed(this, 1000L)
         }

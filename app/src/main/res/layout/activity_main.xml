@@ -72,6 +72,18 @@
             android:text="Battery" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/record"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Record now (for a second phone)" />
+
+    <CheckBox
+        android:id="@+id/deleteSilent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Delete recordings that captured no audio" />
+
     <CheckBox
         android:id="@+id/imoOnly"
         android:layout_width="match_parent"

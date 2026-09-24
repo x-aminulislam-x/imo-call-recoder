@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.example.imorec.deleteSilent
 import com.example.imorec.forceSpeaker
 import com.example.imorec.imoOnly
 import java.io.File
@@ -41,6 +42,7 @@ class RecorderService : Service() {
 
         const val ACTION_START = "com.example.imorec.START"
         const val ACTION_STOP = "com.example.imorec.STOP"
+        const val ACTION_MANUAL = "com.example.imorec.MANUAL_TOGGLE"
 
         private const val CHANNEL_STATUS = "status"
         private const val CHANNEL_ALERT = "alert"
@@ -73,6 +75,15 @@ class RecorderService : Service() {
         var lastStatus = "Idle"
             private set
 
+        /**
+         * Manual recording ignores call state entirely. Its purpose is the
+         * second-phone workaround: on a device that is not itself in a call,
+         * nothing competes for the mic, so capture actually works.
+         */
+        @Volatile
+        var isManualRecording = false
+            private set
+
         fun start(c: Context) {
             val i = Intent(c, RecorderService::class.java).setAction(ACTION_START)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -84,6 +95,15 @@ class RecorderService : Service() {
 
         fun stop(c: Context) {
             c.startService(Intent(c, RecorderService::class.java).setAction(ACTION_STOP))
+        }
+
+        fun toggleManual(c: Context) {
+            val i = Intent(c, RecorderService::class.java).setAction(ACTION_MANUAL)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                c.startForegroundService(i)
+            } else {
+                c.startService(i)
+            }
         }
     }
 
@@ -97,6 +117,19 @@ class RecorderService : Service() {
     private var peakRms = 0.0
     private var silenceReported = false
     private var savedSpeakerState: Boolean? = null
+    private var foregroundStarted = false
+
+    /**
+     * Manual recording can be the first thing the service ever does, so the
+     * foreground notification has to be up before any mic access, independently
+     * of whether the call watcher is running.
+     */
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(NOTE_STATUS, statusNotification("Ready"))
+        foregroundStarted = true
+        handler.post(levelTick)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -115,13 +148,24 @@ class RecorderService : Service() {
                 stopEverything()
                 return START_NOT_STICKY
             }
+            ACTION_MANUAL -> {
+                ensureForeground()
+                if (isRecording) {
+                    val wasManual = isManualRecording
+                    stopRecording()
+                    isManualRecording = false
+                    updateStatus(if (wasManual) "Manual recording stopped" else "Stopped")
+                } else {
+                    isManualRecording = true
+                    startRecording(isImo = false, manual = true)
+                }
+            }
             else -> {
+                ensureForeground()
                 if (!isMonitoring) {
-                    startForeground(NOTE_STATUS, statusNotification("Waiting for a call"))
                     detector.start()
                     isMonitoring = true
-                    lastStatus = "Waiting for a call"
-                    handler.post(levelTick)
+                    updateStatus("Waiting for a call")
                     Log.i(TAG, "monitoring started")
                 }
             }
@@ -139,6 +183,8 @@ class RecorderService : Service() {
         if (isMonitoring) detector.stop()
         handler.removeCallbacks(levelTick)
         isMonitoring = false
+        isManualRecording = false
+        foregroundStarted = false
         lastStatus = "Stopped"
         stopForeground(true)
         stopSelf()
@@ -164,16 +210,18 @@ class RecorderService : Service() {
     }
 
     private fun onCallEnded() {
+        // A manual recording is not owned by the call, so a call ending must not
+        // cut it short.
+        if (isManualRecording) return
         if (isRecording) stopRecording()
-        lastStatus = "Waiting for a call"
-        updateStatus(lastStatus)
+        updateStatus("Waiting for a call")
     }
 
-    private fun startRecording(isImo: Boolean) {
-        applySpeakerRouting()
+    private fun startRecording(isImo: Boolean, manual: Boolean = false) {
+        if (!manual) applySpeakerRouting()
 
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-        val prefix = if (isImo) "imo" else "call"
+        val prefix = if (manual) "manual" else if (isImo) "imo" else "call"
         val file = File(Prefs.recordingsDir(this), prefix + "_" + stamp + ".m4a")
 
         peakRms = 0.0
@@ -220,14 +268,25 @@ class RecorderService : Service() {
             Log.w(TAG, "discarded empty recording")
             return
         }
-        Log.i(TAG, "saved " + file?.name + " (" + seconds + "s, peak RMS " + peakRms + ")")
-
+        // A whole call below -60 dBFS is a muted capture, not a quiet room, so
+        // the file has nothing in it. Discard it rather than letting dead
+        // recordings pile up and get mistaken for real ones later.
         if (peakRms < SILENCE_RMS && seconds > 3) {
+            val deleted = deleteSilent && file != null && file.delete()
             alert(
-                "Recording was silent",
-                "The file saved but contains no audio. This phone silences background capture during calls."
+                if (deleted) "Silent recording discarded" else "Recording was silent",
+                if (deleted) {
+                    "No audio reached the microphone, so the empty file was deleted. " +
+                        "This phone silences background capture during calls."
+                } else {
+                    "The file was saved but contains no audio. This phone " +
+                        "silences background capture during calls."
+                }
             )
+            Log.w(TAG, "silent recording, deleted=" + deleted)
+            return
         }
+        Log.i(TAG, "saved " + file?.name + " (" + seconds + "s, peak RMS " + peakRms + ")")
     }
 
     // ---- the silence alarm --------------------------------------------------

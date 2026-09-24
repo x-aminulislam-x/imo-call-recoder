@@ -8,6 +8,7 @@ private const val PREFS_NAME = "imorec"
 private const val KEY_IMO_ONLY = "imo_only"
 private const val KEY_FORCE_SPEAKER = "force_speaker"
 private const val KEY_MONITOR = "monitor_enabled"
+private const val KEY_DELETE_SILENT = "delete_silent"
 
 private fun Context.prefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -26,6 +27,13 @@ var Context.forceSpeaker: Boolean
     get() = prefs().getBoolean(KEY_FORCE_SPEAKER, true)
     set(v) {
         prefs().edit().putBoolean(KEY_FORCE_SPEAKER, v).apply()
+    }
+
+/** Throw away recordings that captured nothing but digital silence. */
+var Context.deleteSilent: Boolean
+    get() = prefs().getBoolean(KEY_DELETE_SILENT, true)
+    set(v) {
+        prefs().edit().putBoolean(KEY_DELETE_SILENT, v).apply()
     }
 
 /** Whether the user wants the watcher running. Survives reboot. */
